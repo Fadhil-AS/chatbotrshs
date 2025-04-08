@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 
 class ChatbotController extends Controller
 {
+    // variable untuk menyimpan array faq
     protected $faqs = [
         'jam operasional Rumah Sakit Hasan Sadikin' => [
             'category' => 'Jam operasional',
