@@ -82,6 +82,7 @@ class ChatbotController extends Controller
         $ksm = null;
         $poli = null;
         $hari = null;
+        $dokter = null;
         $log = [];
 
         $ksmKeywords = [
@@ -93,7 +94,7 @@ class ChatbotController extends Controller
             'terapi' => 'klinik anestesi & terapi nyeri'
         ];
 
-        // Deteksi ksm
+        // Deteksi ksm dengan mencari kata pertanyaan ksm
         foreach ($ksmKeywords as $key => $val) {
             if (preg_match("/{$key}/i", $pertanyaan)) {
                 $ksm = $val;
@@ -102,7 +103,7 @@ class ChatbotController extends Controller
             }
         }
 
-        // Deteksi poli
+        // Deteksi poli dengan mencari kata pertanyaan poli
         foreach ($poliKeywords as $key => $val) {
             if (preg_match("/{$key}/i", $pertanyaan)) {
                 $poli = $val;
@@ -111,29 +112,61 @@ class ChatbotController extends Controller
         }
 
         // Deteksi hari dari "hari ini" dan "besok"
-        if (preg_match("/\bhari ini\b/i", $pertanyaan)) {
+        if (Str::contains($pertanyaan, 'hari ini')) {
             $hari = strtolower(Carbon::now()->locale('id')->isoFormat('dddd'));
-        }
-
-        if (preg_match("/\bbesok\b/i", $pertanyaan)) {
+        } elseif (Str::contains($pertanyaan, 'besok')) {
             $hari = strtolower(Carbon::now()->addDay()->locale('id')->isoFormat('dddd'));
-        }
-
-        if (preg_match("/\blusa\b/i", $pertanyaan)) {
+        } elseif (Str::contains($pertanyaan, 'lusa')) {
             $hari = strtolower(Carbon::now()->addDays(2)->locale('id')->isoFormat('dddd'));
-        }
-
-        // Deteksi hari
-        $hariList = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
-        foreach ($hariList as $h) {
-            if (preg_match("/\b{$h}\b/i", $pertanyaan)) {
-                $hari = $h;
-                break;
+        } else {
+            $hariList = ['senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu', 'minggu'];
+            foreach ($hariList as $h) {
+                if (Str::contains($pertanyaan, $h)) {
+                    $hari = $h;
+                    break;
+                }
             }
         }
 
+        // Deteksi nama dokter
+        if (preg_match("/dokter\s+([a-z]+)/i", $pertanyaan, $matches)) {
+            $namaSementara = trim($matches[1]);
+            $kataTidakValid = ['hari', 'besok', 'lusa', 'ini'];
+
+            if (!in_array($namaSementara, $kataTidakValid)) {
+                $dokter = $namaSementara;
+            }
+        }
+
+        // Deteksi hanya nama dokter saja
+        if (!$dokter) {
+            $namaKata = explode(' ', $pertanyaan);
+
+            foreach ($namaKata as $kata) {
+                // Cari apakah ada dokter dengan nama tersebut
+                $exists = Chatbot::whereRaw('LOWER(dokter) LIKE ?', ['%' . strtolower($kata) . '%'])->exists();
+                if ($exists) {
+                    $dokter = $kata;
+                    break;
+                }
+            }
+        }
+
+        // Jika hanya dokter disebutkan dengan hari
+        if (Str::contains($pertanyaan, 'dokter') && $hari && !$ksm && !$poli && !$dokter) {
+            $results = Chatbot::whereRaw('LOWER(hari_cluster) = ?', [$hari])->get();
+
+            if ($results->isEmpty()) {
+                return response()->json([
+                    'answer' => "Tidak ada jadwal dokter ditemukan pada hari *$hari*."
+                ]);
+            }
+
+            return response()->json(['answer' => $this->formatJawaban($results)]);
+        }
+
         // Jika KSM dan Hari cocok
-        if (($ksm || $poli) && $hari) {
+        if (($ksm || $poli || $dokter) && $hari) {
             $query = Chatbot::whereRaw('LOWER(hari_cluster) = ?', [$hari]);
 
             if ($ksm) {
@@ -142,6 +175,10 @@ class ChatbotController extends Controller
 
             if ($poli) {
                 $query->whereRaw('LOWER(poli) LIKE ?', ['%' . strtolower($poli) . '%']);
+            }
+
+            if ($dokter) {
+                $query->whereRaw('LOWER(dokter) LIKE ?', ['%' . strtolower($dokter) . '%']);
             }
 
             $results = $query->get();
@@ -168,6 +205,7 @@ class ChatbotController extends Controller
             return response()->json(['answer' => $this->formatJawaban($results)]);
         }
 
+        // jika hanya poli
         if ($poli && !$hari) {
             $results = Chatbot::whereRaw('LOWER(poli) LIKE ?', ['%' . strtolower($poli) . '%'])->get();
 
@@ -180,7 +218,18 @@ class ChatbotController extends Controller
             return response()->json(['answer' => $this->formatJawaban($results)]);
         }
 
-        // Tidak ada keyword valid → jangan tampilkan data
+        // Jika hanya dokter disebutkan tanpa hari
+        if ($dokter && !$hari) {
+            $results = Chatbot::whereRaw('LOWER(dokter) LIKE ?', ['%' . strtolower($dokter) . '%'])->get();
+
+            if ($results->isEmpty()) {
+                return response()->json([
+                    'answer' => "Data tidak ditemukan untuk dokter *$dokter*. Silakan coba dengan hari tertentu."
+                ]);
+            }
+
+            return response()->json(['answer' => $this->formatJawaban($results)]);
+        }
 
         return response()->json([
             'answer' => "Pertanyaan Anda tidak dapat ditemukan jadwalnya. Silakan gunakan kata kunci seperti \"dokter anestesi hari $hariIni\"."
