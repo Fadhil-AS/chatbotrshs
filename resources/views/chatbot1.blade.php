@@ -41,10 +41,15 @@
         <i class="bi bi-chat-dots"></i>
     </button>
 
+    <script src="https://code.jquery.com/jquery-3.7.1.js" integrity="sha256-eKhayi8LEQwp4NKxN+CfCh+3qOVUtJn3QNZ0TciWLP4="
+        crossorigin="anonymous"></script>
     <!-- Script Chatbot -->
     <script>
-        $(document).ready(function() {
-            // Tampilkan chatbot dengan animasi
+        const N8N_CHAT_URL = 'http://localhost:5678/webhook/eda3aa42-8079-4840-810a-f27dbd66b833/chat';
+        const sessionId = Date.now().toString(); // unique per session
+
+        $(function() {
+            // Toggle chatbot open/close
             $('#open-chatbot').click(function() {
                 const chatbot = $('#chatbot-container');
                 const icon = $(this).find('i');
@@ -61,86 +66,74 @@
                 }
             });
 
-            // Tutup chatbot dengan animasi
+
             $('#close-chatbot').click(function() {
-                $('#chatbot-container').slideUp(() => {
-                    $('#chatbot-container').removeClass('show');
-                });
+                $('#chatbot-container').slideUp().removeClass('show');
+                $('#open-chatbot i').removeClass('bi-x').addClass('bi-chat-dots');
             });
 
-            // Fokus input - styling ditangani oleh CSS
-            $('#chatbot-input').on('focus', function() {
-                $(this).addClass('focus');
-            }).on('blur', function() {
-                $(this).removeClass('focus');
+            // Event listeners
+            $('#send-chatbot').click(sendMessage);
+            $('#chatbot-input').on('keypress', function(e) {
+                if (e.which === 13) sendMessage();
             });
 
-            // Klik tombol kirim
-            $('#send-chatbot').click(function() {
-                sendMessage();
-            });
+            async function sendMessage() {
+                const input = $('#chatbot-input');
+                const message = input.val().trim();
+                if (!message) return;
 
-            // Fungsi kirim pertanyaan
-            $('#chatbot-input').keypress(function(e) {
-                if (e.which === 13) {
-                    sendMessage();
-                }
-            });
-
-            // Fungsi kirim chat
-            function sendMessage() {
-                const question = $('#chatbot-input').val().trim();
-                if (question === "") return;
-
-                const now = new Date();
-                const time = now.toLocaleTimeString([], {
+                const time = new Date().toLocaleTimeString([], {
                     hour: '2-digit',
                     minute: '2-digit'
                 });
 
+                // Tampilkan pesan user
                 $('#chatbot-messages').append(`
-                    <div class="chat-message user">
-                        <div class="chat-message-content">${question}</div>
-                        <div class="chat-timestamp">${time}</div>
-                        <i class="bi bi-person-circle chat-message-icon"></i>
-                    </div>
-                `);
-
-                $('#chatbot-input').val('');
+            <div class="chat-message user">
+                <div class="chat-message-content">${message}</div>
+                <div class="chat-timestamp">${time}</div>
+            </div>
+        `);
+                input.val('');
                 $('#chatbot-messages').scrollTop($('#chatbot-messages')[0].scrollHeight);
 
+                try {
+                    const response = await fetch(N8N_CHAT_URL, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            sessionId,
+                            action: 'sendMessage',
+                            chatInput: message
+                        })
+                    });
 
-
-                // setTimeout(() => {
-                //     $('#chatbot-messages').append(`
-            //     <div class="chat-message bot">
-            //         <i class="bi bi-robot chat-message-icon"></i>
-            //         <div>
-            //             <div class="chat-message-content">Ini adalah respon dari chatbot untuk pengecekan tampilan.</div>
-            //             <div class="chat-timestamp left">${time}</div>
-            //         </div>
-            //     </div>
-            // `);
-                //     $('#chatbot-messages').scrollTop($('#chatbot-messages')[0].scrollHeight);
-                // }, 500);
-
-                $.ajax({
-                    url: '/chatbot',
-                    method: 'POST',
-                    data: {
-                        question: question,
-                        _token: $('meta[name="csrf-token"]').attr('content')
-                    },
-                    success: function(res) {
-                        $('#chatbot-messages').append(`
-                            <div class="chat-message bot">
-                                <div class="chat-message-content">${res.answer}</div>
-                                <div class="chat-timestamp">${time}</div>
-                            </div>
-                        `);
-                        $('#chatbot-messages').scrollTop($('#chatbot-messages')[0].scrollHeight);
+                    const contentType = response.headers.get('Content-Type');
+                    if (!contentType || !contentType.includes('application/json')) {
+                        throw new Error('Invalid JSON response');
                     }
-                });
+
+                    const data = await response.json();
+                    const reply = data.answer || 'Maaf, tidak ada jawaban dari sistem.';
+
+                    $('#chatbot-messages').append(`
+                <div class="chat-message bot">
+                    <div class="chat-message-content">${reply}</div>
+                    <div class="chat-timestamp">${time}</div>
+                </div>
+            `);
+                    $('#chatbot-messages').scrollTop($('#chatbot-messages')[0].scrollHeight);
+                } catch (error) {
+                    console.error('Chatbot Error:', error);
+                    $('#chatbot-messages').append(`
+                <div class="chat-message bot">
+                    <div class="chat-message-content">Maaf, terjadi kesalahan dalam sistem.</div>
+                </div>
+            `);
+                }
             }
         });
     </script>
