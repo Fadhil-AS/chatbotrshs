@@ -90,16 +90,16 @@
 
                 // Tampilkan pesan user
                 $('#chatbot-messages').append(`
-            <div class="chat-message user">
-                <div class="chat-message-content">${message}</div>
-                <div class="chat-timestamp">${time}</div>
-            </div>
-        `);
+                    <div class="chat-message user">
+                        <div class="chat-message-content">${message}</div>
+                        <div class="chat-timestamp">${time}</div>
+                    </div>
+                `);
                 input.val('');
                 $('#chatbot-messages').scrollTop($('#chatbot-messages')[0].scrollHeight);
 
                 try {
-                    const response = await fetch(N8N_CHAT_URL, {
+                    const res = await fetch(N8N_CHAT_URL, {
                         method: 'POST',
                         headers: {
                             'Content-Type': 'application/json'
@@ -110,29 +110,43 @@
                             chatInput: message
                         })
                     });
-
-                    const contentType = response.headers.get('Content-Type');
-                    if (!contentType || !contentType.includes('application/json')) {
-                        throw new Error('Invalid JSON response');
+                    let payload;
+                    const text = await res.text();
+                    try {
+                        payload = JSON.parse(text);
+                    } catch (err) {
+                        console.error("Invalid JSON from server:", text);
+                        throw new Error("Invalid JSON format received from server.");
                     }
 
-                    const data = await response.json();
-                    const reply = data.answer || 'Maaf, tidak ada jawaban dari sistem.';
+                    // ambil jawaban
+                    let reply = 'Maaf, tidak ada jawaban dari sistem.';
+                    if (payload.answer) reply = payload.answer;
+                    else if (payload.parameters?.answer) reply = payload.parameters.answer;
+                    else if (payload[0]?.output) reply = payload[0].output;
+                    else if (payload.output) reply = payload.output;
 
+
+                    // tampilkan bot reply
+                    const time = new Date().toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
                     $('#chatbot-messages').append(`
-                <div class="chat-message bot">
-                    <div class="chat-message-content">${reply}</div>
-                    <div class="chat-timestamp">${time}</div>
-                </div>
-            `);
+                      <div class="chat-message bot">
+                        <div class="chat-message-content">${reply}</div>
+                        <div class="chat-timestamp">${time}</div>
+                      </div>
+                    `);
                     $('#chatbot-messages').scrollTop($('#chatbot-messages')[0].scrollHeight);
-                } catch (error) {
-                    console.error('Chatbot Error:', error);
+
+                } catch (err) {
+                    console.error('Chatbot Error:', err);
                     $('#chatbot-messages').append(`
-                <div class="chat-message bot">
-                    <div class="chat-message-content">Maaf, terjadi kesalahan dalam sistem.</div>
-                </div>
-            `);
+                      <div class="chat-message bot">
+                        <div class="chat-message-content">Maaf, terjadi kesalahan dalam sistem.</div>
+                      </div>
+                    `);
                 }
             }
         });
